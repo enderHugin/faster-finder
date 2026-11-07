@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+_site/
+actualizacion.json
+actualizacion.json.tmp
+backups_programa/
+*.nuevo
