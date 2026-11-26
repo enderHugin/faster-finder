@@ -93,7 +93,44 @@ except ValueError:
 with open(APP, encoding="utf-8") as f:
     assert f.read() == OLD, "se tocó el archivo pese a la huella incorrecta"
 
-# 5) sin servidor -> error controlado, no excepción
+# 5) los demás archivos publicados (langkit.py, lang/*.json): llegan con la actualización, comprobados,
+#    y una instalación antigua (sin ellos) los trae sola al arrancar
+def publish_with(extra, pack, main=NEW, bad=None):
+    info = publish(main, pack)
+    for name, content in extra.items():
+        path = os.path.join(DL, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = content.encode("utf-8")
+        with open(path, "wb") as f:
+            f.write(data)
+        info["files"][name] = {"sha256": "0" * 64 if name == bad else hashlib.sha256(data).hexdigest(), "size": len(data)}
+    with open(os.path.join(DL, "update.json"), "w", encoding="utf-8") as f:
+        json.dump(info, f)
+    return info
+
+EXTRA = {"langkit.py": "X = 1\n", "lang/es.json": '{"a.b": "hola"}', "lang/en.json": '{"a.b": "hello"}'}
+publish_with(EXTRA, CUR + 1, bad="lang/en.json")
+try:
+    ff.update_apply(ff.update_check()["info"])
+    raise AssertionError("debió rechazar un diccionario con la huella mal")
+except ValueError:
+    pass
+assert not os.path.exists(os.path.join(WORK, "langkit.py")) and open(APP, encoding="utf-8").read() == OLD, "se tocó algo pese al rechazo"
+publish_with(EXTRA, CUR + 1)
+ff.update_apply(ff.update_check()["info"])
+assert open(os.path.join(WORK, "lang", "en.json"), encoding="utf-8").read() == EXTRA["lang/en.json"], "no llegó lang/en.json"
+assert open(APP, encoding="utf-8").read() == NEW
+ff.update_rollback()
+for f in ("langkit.py", "lang/es.json", "lang/en.json"):
+    os.remove(os.path.join(WORK, f))
+real_here, real_lk = ff.HERE, ff.langkit
+ff.HERE, ff.langkit = WORK, None
+assert ff.bring_lang_files() is True, "una instalación antigua debe traer los diccionarios"
+assert os.path.exists(os.path.join(WORK, "langkit.py")) and os.path.exists(os.path.join(WORK, "lang", "es.json"))
+assert open(APP, encoding="utf-8").read() == OLD, "traer los diccionarios no cambia el programa"
+ff.HERE, ff.langkit = real_here, real_lk
+
+# 6) sin servidor -> error controlado, no excepción
 ff.UPDATE_BASE = "http://127.0.0.1:1/dl/"
 assert ff.update_check()["ok"] is False
 

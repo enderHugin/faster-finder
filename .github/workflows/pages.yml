@@ -1,9 +1,12 @@
-name: Publicar la página
+# pages.yml
+# Pruebas, instalacion de verdad en Windows (en ingles y luego encima en espanol) y publicacion de
+# la pagina, los instaladores y update.json con py-installer (https://github.com/enderHugin/py-installer).
+name: Probar y publicar
 
 on:
   push:
     branches: [main]
-    paths: ["site/**", "installers/**", "faster_finder.py", "VERSION", "tools/build_site.sh", ".github/workflows/pages.yml"]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,21 +15,104 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python del sistema con Tk y xvfb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-tk xvfb > /dev/null
+      - run: python3 tests/unit_update.py
+      - run: xvfb-run -a python3 tests/unit_scan.py
+      - name: Idiomas del programa (completos, y cada clave usada existe)
+        uses: enderHugin/lang-kit@808044aaf8f675457d5e5f7e8c3ba9e7f8d0127d
+        with:
+          dirs: lang
+          code: faster_finder.py
+          strict: 'true'
+      - name: Idiomas de la pagina
+        uses: enderHugin/lang-kit@808044aaf8f675457d5e5f7e8c3ba9e7f8d0127d
+        with:
+          dirs: site/lang
+          code: site/index.html
+          strict: 'true'
+
+  instalar:
+    runs-on: windows-latest
+    env:
+      FASTER_FINDER_NO_LAUNCH: '1'
+      PYI_NO_PAUSE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/checkout@v4
+        with:
+          repository: enderHugin/py-installer
+          ref: 874fe3566623809020fc3414b5b034beeae836a6
+          path: _pyi
+      - name: Montar y servir el sitio en local
+        shell: bash
+        run: |
+          python _pyi/pyi.py build --app . --base http://127.0.0.1:8765 --out _site
+          (cd _site && nohup python -m http.server 8765 --bind 127.0.0.1 > ../http.log 2>&1 &)
+          for i in $(seq 1 20); do curl -fsS --max-time 2 http://127.0.0.1:8765/dl/update.json > /dev/null && exit 0; sleep 1; done; exit 1
+      - name: Instalar en ingles, como lo bajaria un visitante con el navegador en ingles
+        shell: cmd
+        run: call _site\dl\faster-finder-instalar-en.cmd
+      - name: Comprobar
+        shell: bash
+        run: |
+          P="$LOCALAPPDATA/Programs/faster-finder"; PY="$P/venv/Scripts/python.exe"
+          for f in faster_finder.py langkit.py lang/es.json lang/en.json lang/ca.json lang.json; do test -f "$P/$f"; done
+          grep -q '"lang": "en"' "$P/lang.json"
+          "$PY" -c "import sys; sys.path.insert(0, sys.argv[1]); import faster_finder as ff; print(ff.t('btn.start')); assert ff.t('btn.start') == 'Start'" "$P"
+          test -f "$APPDATA/Microsoft/Windows/Start Menu/Programs/Faster Finder.lnk"
+      - name: Reinstalar encima en espanol (el idioma elegido se conserva)
+        shell: cmd
+        run: call _site\dl\faster-finder-instalar.cmd
+      - name: Comprobar de nuevo y desinstalar
+        shell: pwsh
+        run: |
+          $prog = Join-Path $env:LOCALAPPDATA 'Programs\faster-finder'
+          if ((Get-Content "$prog\lang.json" -Raw | ConvertFrom-Json).lang -ne 'en') { throw 'reinstalar cambio el idioma' }
+          powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $env:LOCALAPPDATA 'faster-finder\uninstall.ps1') -Si
+          if (Test-Path "$prog\faster_finder.py") { throw 'no se desinstalo' }
+          'OK'
+      - name: Registro (si algo falla)
+        if: failure()
+        shell: bash
+        run: |
+          cat http.log || true
+          tail -n 80 "$LOCALAPPDATA/faster-finder/logs/instalacion.log" || true
+
+  build:
+    if: github.event_name != 'pull_request'
+    needs: [pruebas, instalar]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: enderHugin/py-installer@874fe3566623809020fc3414b5b034beeae836a6
+        with:
+          base-url: https://enderhugin.github.io/faster-finder
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
   deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - run: bash tools/build_site.sh
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
       - id: deployment
         uses: actions/deploy-pages@v4

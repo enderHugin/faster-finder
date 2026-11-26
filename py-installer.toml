@@ -1,0 +1,24 @@
+# py-installer.toml
+# Instalador de Windows, pagina y update.json de Faster Finder, montados por py-installer
+# (https://github.com/enderHugin/py-installer). Mismas carpetas, accesos y entrada en «Aplicaciones
+# instaladas» que el instalador propio de antes: reinstalar actualiza encima.
+
+[app]
+id = "faster-finder"
+name = "Faster Finder"
+entry = "faster_finder.py"
+description = "Encuentra las carpetas de fotos y vídeos de tus discos"
+publisher = "enderHugin"
+os = ["windows"]                 # busca en las unidades de Windows
+venv = "venv"                    # la carpeta del entorno de siempre
+updater = false                  # tiene su propio actualizador (APP_PACK), que ya baja todos los archivos publicados
+
+[data]
+keep = ["actualizacion.json", "backups_programa"]
+
+# idiomas (lang-kit): el programa saca sus textos de lang/<idioma>.json; aqui, los del manifiesto
+[i18n.en]
+"Encuentra las carpetas de fotos y vídeos de tus discos" = "Finds the photo and video folders on your drives"
+
+[i18n.ca]
+"Encuentra las carpetas de fotos y vídeos de tus discos" = "Troba les carpetes de fotos i vídeos dels teus discos"

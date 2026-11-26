@@ -45,22 +45,37 @@
   a.btn { display: inline-block; padding: .7rem 1.2rem; background: #2d6cdf; color: #fff; border-radius: 6px; text-decoration: none; font-weight: 600; }
   code { background: #f2f2f2; padding: .1rem .3rem; border-radius: 4px; }
   .muted { color: #666; font-size: .9rem; }
+  .langbar { float: right; margin: 0; }
+  .lang { font: inherit; padding: .2rem .4rem; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
 </style>
 </head>
 <body>
-<h1>Faster Finder</h1>
-<p>Busca de forma recursiva carpetas de fotos y vídeos (DCIM, Cámara, Videos…) en tus discos o en la carpeta que elijas, y te deja abrirlas con un doble clic.</p>
+<p class="langbar"><select class="lang" data-langkit-picker aria-label="Idioma / Language"></select></p>
+<h1 data-t-html="site.title">Faster Finder</h1>
+<p data-t-html="site.intro">Busca de forma recursiva carpetas de fotos y vídeos (DCIM, Cámara, Videos…) en tus discos o en la carpeta que elijas, y te deja abrirlas con un doble clic.</p>
 
-<p><a class="btn" href="dl/faster-finder-instalar.cmd">Descargar instalador para Windows</a></p>
-<p class="muted">Versión <code>__VERSION__</code>. Ábrelo y listo: no necesita Python ni permisos de administrador. Se actualiza solo desde esta página.</p>
+<p><a class="btn" href="dl/faster-finder-instalar.cmd" data-t-html="site.download">Descargar instalador para Windows</a></p>
+<p class="muted" data-t-html="site.version">Versión <code>__VERSION__</code>. Ábrelo y listo: no necesita Python ni permisos de administrador. Se actualiza solo desde esta página.</p>
 
-<h2>Instalación</h2>
+<h2 data-t-html="site.install">Instalación</h2>
 <ol>
-  <li>Descarga el instalador y ábrelo.</li>
-  <li>Espera a que termine: prepara su propio Python y crea accesos directos en el menú Inicio y en el escritorio.</li>
-  <li>Para quitarlo, usa «Aplicaciones instaladas» de Windows.</li>
+  <li data-t-html="site.step1">Descarga el instalador y ábrelo.</li>
+  <li data-t-html="site.step2">Espera a que termine: prepara su propio Python y crea accesos directos en el menú Inicio y en el escritorio.</li>
+  <li data-t-html="site.step3">Para quitarlo, usa «Aplicaciones instaladas» de Windows.</li>
 </ol>
 
-<p class="muted"><a href="https://github.com/enderHugin/faster-finder">Código fuente en GitHub</a> · Licencia MIT.</p>
+<p class="muted" data-t-html="site.footer"><a href="https://github.com/enderHugin/faster-finder">Código fuente en GitHub</a> · Licencia MIT.</p>
+<script src="langkit.js"></script>
+<script>
+// textos de la pagina: lang/<idioma>.json (lang-kit); el enlace al instalador del idioma lo pone dl/pyi-lang.js
+LangKit.init({ dir: "lang/", langs: ["es", "en", "ca"], source: "es" }).then(function (L) {
+  function apply() {
+    document.title = L.t("site.js.title");
+    if (window.PyiLang) window.PyiLang.apply(L.code);
+  }
+  L.onChange(apply);
+  apply();
+});
+</script>
 </body>
 </html>
