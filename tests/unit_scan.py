@@ -5,6 +5,8 @@ import os, sys, time, tempfile, shutil, datetime as dt
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 import faster_finder as ff
+import langkit
+langkit.init(ff.__file__, lang="es", settings=os.path.join(tempfile.gettempdir(), "ff_test_lang.json"))
 
 # parse_range
 lo, hi = ff.parse_range("2026-01-01", "2026-01-31")
@@ -65,13 +67,46 @@ if display_ok:
     app.refresh()
     assert len(app.tree.get_children()) == 1
     app.sort_by("archivos")
-    app.field.set(ff.FIELD_MODIFIED)
+    app.field.set(ff.field_label(ff.FIELD_MODIFIED))
     app.d_from.set("2099-01-01")
     app.refresh()
     assert len(app.tree.get_children()) == 0, "el filtro de fecha futura debe ocultarlo"
+    app.d_from.set("2026-02-01"); app.d_to.set("2026-01-01")
+    app.refresh()
+    assert app.date_msg.cget("text") == ff.t("date.reversed"), app.date_msg.cget("text")
+    app.d_from.set("31/01/2026"); app.d_to.set("")
+    app.refresh()
+    assert app.date_msg.cget("text").startswith("Fecha no válida"), app.date_msg.cget("text")
     root.after(300, root.destroy)
     root.mainloop()
     print("interfaz: arranque y filtro OK")
+
+    # en ingles y en catalan: toda la ventana en su idioma, y el boton Idioma / Language
+    for code, want in (("en", ("Start", "Folder", "No filter", "Last 7 days", "Ready", "Language")),
+                       ("ca", ("Inicia", "Carpeta", "Sense filtre", "Últims 7 dies", "A punt", "Idioma / Language"))):
+        langkit.init(ff.__file__, lang=code, settings=os.path.join(tempfile.gettempdir(), "ff_test_lang.json"))
+        root = tk.Tk()
+        app = ff.App(root)
+        texts = []
+
+        def walk(w):
+            for c in w.winfo_children():
+                try:
+                    texts.append(str(c.cget("text")))
+                except tk.TclError:
+                    pass
+                walk(c)
+        walk(root)
+        texts += [app.tree.heading("carpeta", "text").replace("  ▲", ""), app.field.get(), app.status.get()] + list(app.preset["values"])
+        for w in want:
+            assert w in texts, "%s: falta %r en %r" % (code, w, texts)
+        app.records["C:\\DCIM"] = ff.new_record("C:\\DCIM")
+        app.refresh()
+        assert app.count_lbl.cget("text").startswith("0 ") or app.count_lbl.cget("text").startswith("1 "), app.count_lbl.cget("text")
+        app.field.set(ff.field_label("m"))
+        app.refresh()
+        root.destroy()
+        print("interfaz en %s: OK" % code)
 else:
     print("interfaz: sin display, se omite")
 

@@ -1,0 +1,16 @@
+{
+  "@meta": {
+    "name": "Español",
+    "note": "Textos de la pagina de Faster Finder (site/index.html, con langkit.js)."
+  },
+  "site.title": "Faster Finder",
+  "site.intro": "Busca de forma recursiva carpetas de fotos y vídeos (DCIM, Cámara, Videos…) en tus discos o en la carpeta que elijas, y te deja abrirlas con un doble clic.",
+  "site.download": "Descargar instalador para Windows",
+  "site.version": "Versión <code>__VERSION__</code>. Ábrelo y listo: no necesita Python ni permisos de administrador. Se actualiza solo desde esta página.",
+  "site.install": "Instalación",
+  "site.step1": "Descarga el instalador y ábrelo.",
+  "site.step2": "Espera a que termine: prepara su propio Python y crea accesos directos en el menú Inicio y en el escritorio.",
+  "site.step3": "Para quitarlo, usa «Aplicaciones instaladas» de Windows.",
+  "site.footer": "<a href=\"https://github.com/enderHugin/faster-finder\">Código fuente en GitHub</a> · Licencia MIT.",
+  "site.js.title": "Faster Finder · encuentra tus fotos y vídeos en Windows"
+}

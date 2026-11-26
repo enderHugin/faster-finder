@@ -3,7 +3,8 @@
 Busca carpetas con esos nombres en los discos locales (o en una carpeta elegida), muestra sus
 fechas, permite ordenar por ellas y filtrar por fecha de creación o modificación de su contenido.
 
-Un único archivo. Se actualiza solo desde la web del proyecto (ver UPDATE_BASE).
+Se actualiza solo desde la web del proyecto (ver UPDATE_BASE). Textos en lang/<idioma>.json (lang-kit:
+es, en, ca); el idioma lo elige el instalador (lang.json) y se cambia con el boton Idioma / Language.
 """
 import os
 import re
@@ -28,8 +29,8 @@ from tkinter import ttk, filedialog, messagebox
 # APP_PACK sube en cada versión que cambie el programa: es lo que compara la actualización.
 # ---------------------------------------------------------------------------
 APP_NAME = "Faster Finder"
-APP_VERSION = "2026.11.07"
-APP_PACK = 2
+APP_VERSION = "2026.11.26"
+APP_PACK = 3
 UPDATE_BASE = "https://enderhugin.github.io/faster-finder/dl/"
 APP_FILE = os.path.abspath(__file__)
 HERE = os.path.dirname(APP_FILE)
@@ -37,28 +38,77 @@ UPDATE_STATE = os.path.join(HERE, "actualizacion.json")
 UPDATE_BACKUPS = os.path.join(HERE, "backups_programa")
 UPDATE_FILE = "faster_finder.py"
 
+try:
+    import langkit                      # lang-kit: lo instala py-installer junto al programa
+except ImportError:                     # desde el codigo fuente: la copia de vendor/
+    sys.path.insert(0, os.path.join(HERE, "vendor", "lang-kit"))
+    try:
+        import langkit
+    except ImportError:                 # una instalacion antigua recien actualizada: ver bring_lang_files()
+        langkit = None
+
+
+class _OnlyFile:
+    """Sin langkit.py: los textos de lang/es.json tal cual (o la clave, si tampoco esta)."""
+    code = "es"
+
+    def __init__(self):
+        try:
+            with open(os.path.join(HERE, "lang", "es.json"), encoding="utf-8") as f:
+                self.d = json.load(f)
+        except (OSError, ValueError):
+            self.d = {}
+
+    def t(self, key, /, _default=None, **values):
+        v = self.d.get(key, _default if _default is not None else key)
+        if isinstance(v, dict):
+            v = v.get("one" if values.get("n") == 1 else "other", key)
+        for name, val in values.items():
+            v = v.replace("{" + name + "}", str(val))
+        return v
+
+
+_L = None
+
+
+def lang():
+    global _L
+    if langkit is not None:
+        return langkit._current or langkit.init(__file__)
+    if _L is None:
+        _L = _OnlyFile()
+    return _L
+
+
+def t(key, /, **values):
+    return lang().t(key, **values)
+
 NAMES = {
     "dcim", "camara", "cámara", "camera",
     "video", "videos", "vídeo"
 }
 
-# Campo de fecha por el que se filtra (fecha del contenido) y su etiqueta en pantalla
-FIELD_NONE = "Sin filtro"
-FIELD_CREATED = "Creación del contenido"
-FIELD_MODIFIED = "Modificación del contenido"
-FIELD_CODES = {FIELD_NONE: None, FIELD_CREATED: "c", FIELD_MODIFIED: "m"}
+# Campo de fecha por el que se filtra (fecha del contenido): None (sin filtro), "c" o "m".
+# En pantalla, t("field.none"), t("field.c"), t("field.m").
+FIELDS = (None, "c", "m")
+FIELD_MODIFIED = "m"
 
-# (id, cabecera, anchura, alineación, es_fecha)
+
+def field_label(code):
+    return t("field." + (code or "none"))
+
+
+# (id, anchura, alineación, es_fecha); la cabecera es t("col.<id>")
 COLUMNS = [
-    ("carpeta", "Carpeta", 380, "w", False),
-    ("creada", "Creada", 135, "w", True),
-    ("modificada", "Modificada", 135, "w", True),
-    ("archivos", "Archivos", 70, "e", False),
-    ("tamano", "Tamaño", 85, "e", False),
-    ("c_contenido", "Contenido: creado (desde → hasta)", 265, "w", True),
-    ("m_contenido", "Contenido: modificado (desde → hasta)", 265, "w", True),
+    ("carpeta", 380, "w", False),
+    ("creada", 135, "w", True),
+    ("modificada", 135, "w", True),
+    ("archivos", 70, "e", False),
+    ("tamano", 85, "e", False),
+    ("c_contenido", 265, "w", True),
+    ("m_contenido", 265, "w", True),
 ]
-PRESET_DAYS = {"Últimos 7 días": 7, "Últimos 30 días": 30, "Últimos 365 días": 365}
+PRESET_DAYS = (7, 30, 365)               # en pantalla, t("preset.<dias>")
 
 events = queue.Queue()      # hacia la interfaz: found / stats / done / update_*
 tasks = queue.Queue()       # trabajo del escáner
@@ -223,7 +273,7 @@ def parse_range(desde, hasta):
     if hasta.strip():
         hi = (dt.datetime.strptime(hasta.strip(), "%Y-%m-%d") + dt.timedelta(days=1)).timestamp()
     if lo >= hi:
-        raise ValueError("la fecha «desde» es posterior a «hasta»")
+        raise ValueError("reversed")                 # en pantalla: t("date.reversed")
     return lo, hi
 
 
@@ -268,7 +318,7 @@ def fmt_size(n):
 
 def fmt_span(values, ready):
     if not ready:
-        return "calculando…"
+        return t("fmt.calculating")
     if not values:
         return "—"
     first, last = fmt_day(values[0]), fmt_day(values[-1])
@@ -357,12 +407,12 @@ def _update_get(url, limit, timeout=20):
     """Descarga una dirección de la web del proyecto (y nada más: ni siquiera si hay una
     redirección a otro sitio)."""
     if not url.startswith(UPDATE_BASE):
-        raise ValueError("dirección no permitida")
+        raise ValueError(t("err.url"))
 
     class _Same(urllib.request.HTTPRedirectHandler):
         def redirect_request(self, req, fp, code, msg, headers, newurl):
             if not newurl.startswith(UPDATE_BASE):
-                raise ValueError("redirección a otro sitio rechazada")
+                raise ValueError(t("err.redirect"))
             return super().redirect_request(req, fp, code, msg, headers, newurl)
 
     op = urllib.request.build_opener(
@@ -372,7 +422,7 @@ def _update_get(url, limit, timeout=20):
     with op.open(req, timeout=timeout) as r:
         data = r.read(limit + 1)
     if len(data) > limit:
-        raise ValueError("la respuesta es demasiado grande")
+        raise ValueError(t("err.too_big"))
     return data
 
 
@@ -385,7 +435,7 @@ def update_check():
         meta = info["files"][UPDATE_FILE]
         pack, sha, size = int(info["pack"]), str(meta["sha256"]).lower(), int(meta["size"])
         if not re.fullmatch(r"[0-9a-f]{64}", sha) or size <= 0 or size > 1048576:
-            raise ValueError("update.json no es válido")
+            raise ValueError(t("err.bad_json"))
     except Exception as e:  # noqa: BLE001 - cualquier fallo de red o de formato se muestra tal cual
         return {"ok": False, "error": str(e) or e.__class__.__name__}
     loc = update_local_info()
@@ -400,15 +450,65 @@ def update_check():
     return {"ok": True, "state": st, "info": info, "local": loc}
 
 
-def _update_file(info):
-    meta = info["files"][UPDATE_FILE]
+def _safe_name(name):
+    n = str(name).replace("\\", "/")
+    return bool(n) and not n.startswith("/") and ":" not in n and all(x not in ("", ".", "..") for x in n.split("/"))
+
+
+def _update_file(info, name=UPDATE_FILE):
+    meta = info["files"][name]
+    if not _safe_name(name) or int(meta["size"]) > 4194304:
+        raise ValueError(t("err.bad_json"))
     # con la huella en la dirección no se sirve una copia vieja de la caché
-    data = _update_get(UPDATE_BASE + UPDATE_FILE + "?v=" + str(meta["sha256"])[:12], int(meta["size"]))
+    data = _update_get(UPDATE_BASE + name + "?v=" + str(meta["sha256"])[:12], int(meta["size"]))
     if len(data) != int(meta["size"]) or hashlib.sha256(data).hexdigest() != str(meta["sha256"]).lower():
-        raise ValueError("lo descargado no coincide con la huella publicada (se cancela; si "
-                         "acaban de publicar, inténtalo de nuevo en unos minutos)")
-    compile(data, UPDATE_FILE, "exec")  # que al menos sea Python válido antes de tocar nada
+        raise ValueError(t("err.hash", file=name))
+    if name.endswith(".py"):
+        compile(data, name, "exec")  # que al menos sea Python válido antes de tocar nada
     return data
+
+
+def _companions(info):
+    """Los demas archivos publicados (langkit.py, lang/*.json...) que faltan o han cambiado aqui."""
+    d = os.path.dirname(APP_FILE)
+    out = {}
+    for name, meta in (info.get("files") or {}).items():
+        if name == UPDATE_FILE or not _safe_name(name):
+            continue
+        local = os.path.join(d, name)
+        try:
+            with open(local, "rb") as f:
+                same = hashlib.sha256(f.read()).hexdigest() == str(meta["sha256"]).lower()
+        except OSError:
+            same = False
+        if not same:
+            out[name] = _update_file(info, name)
+    return out
+
+
+def _put_companions(files):
+    d = os.path.dirname(APP_FILE)
+    for name, data in files.items():
+        path = os.path.join(d, name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _update_put(path, data)
+
+
+def bring_lang_files():
+    """Una instalacion antigua se actualiza con su actualizador de antes, que solo baja faster_finder.py:
+    al arrancar, si faltan langkit.py o los diccionarios, se bajan de la web (con su huella). Devuelve
+    True si ha traido algo."""
+    if langkit is not None and os.path.exists(os.path.join(HERE, "lang", "es.json")):
+        return False
+    if not os.path.exists(os.path.join(HERE, "install_info.json")) and os.path.isdir(os.path.join(HERE, "vendor")):
+        return False                     # desde el codigo fuente
+    try:
+        info = json.loads(_update_get(UPDATE_BASE + "update.json?t=%d" % int(time.time()), 262144).decode("utf-8"))
+        files = _companions(info)
+        _put_companions(files)
+        return bool(files)
+    except Exception:  # noqa: BLE001 - sin red: se sigue con lo que haya
+        return False
 
 
 def _update_put(path, data):
@@ -432,14 +532,16 @@ def update_apply(info):
     """Descarga y comprueba la versión publicada, guarda una copia de la actual y la sustituye."""
     d = os.path.dirname(APP_FILE)
     if not os.access(d, os.W_OK) or not os.access(APP_FILE, os.W_OK):
-        raise ValueError("No hay permiso para escribir en la carpeta del programa (%s)." % d)
+        raise ValueError(t("err.no_write", dir=d))
     data = _update_file(info)
     m = re.search(rb"^APP_PACK\s*=\s*(\d+)", data, re.M)
     if not m or int(m.group(1)) != int(info["pack"]):
-        raise ValueError("El archivo publicado no es el de la versión anunciada (se cancela).")
+        raise ValueError(t("err.wrong_pack"))
+    companions = _companions(info)       # todo descargado y comprobado antes de tocar nada
     os.makedirs(UPDATE_BACKUPS, exist_ok=True)
     bk = _update_bkname()
     shutil.copyfile(APP_FILE, bk)
+    _put_companions(companions)          # el principal, el ultimo
     _update_put(APP_FILE, data)
     st = update_state()
     st.update({"last_backup": bk, "from_pack": APP_PACK, "to_pack": int(info["pack"]), "applied": time.time()})
@@ -462,7 +564,7 @@ def update_backup_available():
 def update_rollback():
     """Vuelve a la copia guardada en la última actualización (y deja la actual como copia)."""
     if not update_backup_available():
-        raise ValueError("No hay una copia anterior a la que volver.")
+        raise ValueError(t("err.no_backup"))
     st = update_state()
     with open(st["last_backup"], "rb") as f:
         data = f.read()
@@ -565,57 +667,59 @@ class App:
         head = ttk.Frame(outer)
         head.pack(fill="x")
         ttk.Label(head, text="Faster Finder", style="Title.TLabel").pack(side="left")
+        if langkit is not None:
+            langkit.tk_button(head, lang(), restart=self.restart_for_language).pack(side="right", padx=(10, 0), pady=(8, 0))
         ttk.Label(head, text="v" + APP_VERSION, style="Muted.TLabel").pack(side="right", pady=(8, 0))
-        ttk.Label(outer, style="Muted.TLabel",
-                  text="Busca carpetas de fotos y vídeos (DCIM, Cámara, Videos…), ordénalas y filtra por fecha."
-                  ).pack(anchor="w", pady=(0, 10))
+        ttk.Label(outer, style="Muted.TLabel", text=t("app.tagline")).pack(anchor="w", pady=(0, 10))
 
         # Origen + búsqueda
         top = ttk.Frame(outer)
         top.pack(fill="x")
 
-        src = ttk.LabelFrame(top, text=" Origen ", padding=10)
+        src = ttk.LabelFrame(top, text=" %s " % t("box.source"), padding=10)
         src.pack(side="left", fill="x", expand=True)
         self.location = tk.StringVar()
         entry = ttk.Entry(src, textvariable=self.location)
         entry.pack(side="left", fill="x", expand=True)
         entry.bind("<Return>", lambda e: self.start_search())
-        ttk.Button(src, text="Examinar…", command=self.browse).pack(side="left", padx=(8, 0))
-        ttk.Label(src, text="vacío = todos los discos locales", style="Muted.TLabel").pack(side="left", padx=(10, 0))
+        ttk.Button(src, text=t("btn.browse"), command=self.browse).pack(side="left", padx=(8, 0))
+        ttk.Label(src, text=t("hint.all_drives"), style="Muted.TLabel").pack(side="left", padx=(10, 0))
 
-        srch = ttk.LabelFrame(top, text=" Búsqueda ", padding=10)
+        srch = ttk.LabelFrame(top, text=" %s " % t("box.search"), padding=10)
         srch.pack(side="left", padx=(12, 0))
-        ttk.Label(srch, text="Hilos").grid(row=0, column=0, sticky="w")
+        ttk.Label(srch, text=t("lbl.threads")).grid(row=0, column=0, sticky="w")
         self.thread_count = tk.StringVar(value="8")
         ttk.Spinbox(srch, from_=1, to=32, width=5, textvariable=self.thread_count
                     ).grid(row=0, column=1, padx=6)
-        self.btn_start = ttk.Button(srch, text="Iniciar", style="Accent.TButton", command=self.start_search)
+        self.btn_start = ttk.Button(srch, text=t("btn.start"), style="Accent.TButton", command=self.start_search)
         self.btn_start.grid(row=0, column=2, padx=(6, 4))
-        self.btn_stop = ttk.Button(srch, text="Detener", command=self.stop_search)
+        self.btn_stop = ttk.Button(srch, text=t("btn.stop"), command=self.stop_search)
         self.btn_stop.grid(row=0, column=3)
 
         # Filtro de fechas
-        dates = ttk.LabelFrame(outer, text=" Filtrar por fecha del contenido ", padding=10)
+        dates = ttk.LabelFrame(outer, text=" %s " % t("box.dates"), padding=10)
         dates.pack(fill="x", pady=(12, 0))
-        ttk.Label(dates, text="Campo").grid(row=0, column=0, sticky="w")
-        self.field = tk.StringVar(value=FIELD_NONE)
+        ttk.Label(dates, text=t("lbl.field")).grid(row=0, column=0, sticky="w")
+        self.field_codes = {field_label(c): c for c in FIELDS}
+        self.field = tk.StringVar(value=field_label(None))
         cb = ttk.Combobox(dates, textvariable=self.field, state="readonly", width=26,
-                          values=list(FIELD_CODES))
+                          values=list(self.field_codes))
         cb.grid(row=0, column=1, padx=6)
         cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
-        ttk.Label(dates, text="Desde (AAAA-MM-DD)").grid(row=0, column=2, padx=(14, 0))
+        ttk.Label(dates, text=t("lbl.from")).grid(row=0, column=2, padx=(14, 0))
         self.d_from = tk.StringVar()
         self._date_entry(dates, self.d_from).grid(row=0, column=3, padx=6)
-        ttk.Label(dates, text="Hasta").grid(row=0, column=4, padx=(14, 0))
+        ttk.Label(dates, text=t("lbl.to")).grid(row=0, column=4, padx=(14, 0))
         self.d_to = tk.StringVar()
         self._date_entry(dates, self.d_to).grid(row=0, column=5, padx=6)
 
-        ttk.Label(dates, text="Atajos").grid(row=0, column=6, padx=(14, 0))
-        self.preset = ttk.Combobox(dates, state="readonly", width=17, values=list(PRESET_DAYS))
+        ttk.Label(dates, text=t("lbl.presets")).grid(row=0, column=6, padx=(14, 0))
+        self.preset_days = {t("preset.%d" % n): n for n in PRESET_DAYS}
+        self.preset = ttk.Combobox(dates, state="readonly", width=17, values=list(self.preset_days))
         self.preset.grid(row=0, column=7, padx=6)
         self.preset.bind("<<ComboboxSelected>>", self.apply_preset)
-        ttk.Button(dates, text="Quitar filtro", command=self.clear_dates).grid(row=0, column=8, padx=(14, 0))
+        ttk.Button(dates, text=t("btn.clear"), command=self.clear_dates).grid(row=0, column=8, padx=(14, 0))
         self.date_msg = ttk.Label(dates, text="", style="Error.TLabel")
         self.date_msg.grid(row=1, column=0, columnspan=9, sticky="w", pady=(6, 0))
 
@@ -624,8 +728,8 @@ class App:
         res.pack(fill="both", expand=True, pady=(10, 0))
         ids = [c[0] for c in COLUMNS]
         self.tree = ttk.Treeview(res, columns=ids, show="headings", selectmode="extended")
-        for cid, label, width, anchor, _is_date in COLUMNS:
-            self.tree.heading(cid, text=label, command=lambda c=cid: self.sort_by(c))
+        for cid, width, anchor, _is_date in COLUMNS:
+            self.tree.heading(cid, text=t("col." + cid), command=lambda c=cid: self.sort_by(c))
             self.tree.column(cid, width=width, anchor=anchor, stretch=cid == "carpeta")
         vsb = ttk.Scrollbar(res, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(res, orient="horizontal", command=self.tree.xview)
@@ -641,27 +745,27 @@ class App:
         self.tree.bind("<Return>", lambda e: self.open_selected())
         self.tree.bind("<Button-3>", self.popup)
         self.menu = tk.Menu(r, tearoff=0)
-        self.menu.add_command(label="Abrir", command=self.open_selected)
-        self.menu.add_command(label="Copiar ruta", command=self.copy_paths)
+        self.menu.add_command(label=t("menu.open"), command=self.open_selected)
+        self.menu.add_command(label=t("menu.copy_path"), command=self.copy_paths)
 
         # Barra de acciones sobre la selección
         actions = ttk.Frame(outer)
         actions.pack(fill="x", pady=(8, 0))
-        ttk.Button(actions, text="Abrir selección", command=self.open_selected).pack(side="left")
-        ttk.Button(actions, text="Copiar ruta", command=self.copy_paths).pack(side="left", padx=6)
+        ttk.Button(actions, text=t("btn.open_sel"), command=self.open_selected).pack(side="left")
+        ttk.Button(actions, text=t("btn.copy_path"), command=self.copy_paths).pack(side="left", padx=6)
         self.count_lbl = ttk.Label(actions, text="", style="Muted.TLabel")
         self.count_lbl.pack(side="right")
 
         # Pie: estado y actualizaciones
         foot = ttk.Frame(outer)
         foot.pack(fill="x", pady=(10, 0))
-        self.status = tk.StringVar(value="Preparado")
+        self.status = tk.StringVar(value=t("status.ready"))
         ttk.Label(foot, textvariable=self.status).pack(side="left")
         self.progress = ttk.Progressbar(foot, mode="indeterminate", length=160)
         self.progress.pack(side="left", padx=10)
-        ttk.Button(foot, text="Revertir actualización", command=self.rollback).pack(side="right", padx=(6, 0))
-        ttk.Button(foot, text="Buscar actualizaciones", command=lambda: self.check_updates(True)).pack(side="right", padx=(6, 0))
-        ttk.Checkbutton(foot, text="Actualizar automáticamente sin preguntar",
+        ttk.Button(foot, text=t("btn.rollback"), command=self.rollback).pack(side="right", padx=(6, 0))
+        ttk.Button(foot, text=t("btn.check_updates"), command=lambda: self.check_updates(True)).pack(side="right", padx=(6, 0))
+        ttk.Checkbutton(foot, text=t("chk.auto_update"),
                         variable=self.auto_update, command=self.save_auto_update).pack(side="right")
 
         self._update_headings()
@@ -690,17 +794,19 @@ class App:
         total = len(self.records)
         ready = sum(1 for r in self.records.values() if r["ready"])
         pending = stats_q.unfinished_tasks
-        text = "%d de %d carpetas · %d con fechas" % (shown, total, ready)
         if pending:
-            text += " · calculando %d más…" % pending
+            text = t("status.counts_pending", shown=shown, n=total, ready=ready, pending=pending)
+        else:
+            text = t("status.counts", shown=shown, n=total, ready=ready)
         self.count_lbl.configure(text=text)
+        self._pending_shown = bool(pending)
 
     def _update_headings(self):
-        for cid, label, *_ in COLUMNS:
+        for cid, *_ in COLUMNS:
             arrow = ""
             if cid == self.sort_col:
                 arrow = "  ▼" if self.sort_desc else "  ▲"
-            self.tree.heading(cid, text=label + arrow)
+            self.tree.heading(cid, text=t("col." + cid) + arrow)
 
     # --- búsqueda --------------------------------------------------------------------------------
 
@@ -716,13 +822,13 @@ class App:
         path = self.location.get().strip()
         if path:
             if not os.path.isdir(path):
-                messagebox.showerror(APP_NAME, "Directorio no válido")
+                messagebox.showerror(APP_NAME, t("err.bad_dir"))
                 return
             roots = [os.path.abspath(path)]
         else:
             roots = local_drives()
         if not roots:
-            messagebox.showerror(APP_NAME, "No se encontraron discos locales")
+            messagebox.showerror(APP_NAME, t("err.no_drives"))
             return
         try:
             count = max(1, min(32, int(self.thread_count.get())))
@@ -734,14 +840,14 @@ class App:
         stop_event.clear()
         running = True
         self._set_busy(True)
-        self.set_status("Buscando…")
+        self.set_status(t("status.searching"))
         self.dirty = True
         threading.Thread(target=scan_coordinator, args=(roots, count), daemon=True).start()
 
     def stop_search(self):
         if running:
             stop_event.set()
-            self.set_status("Deteniendo búsqueda…")
+            self.set_status(t("status.stopping"))
 
     # --- orden y filtro ------------------------------------------------------------------------
 
@@ -754,11 +860,11 @@ class App:
         self.refresh()
 
     def apply_preset(self, _event=None):
-        days = PRESET_DAYS.get(self.preset.get())
+        days = self.preset_days.get(self.preset.get())
         if not days:
             return
-        if self.field.get() == FIELD_NONE:
-            self.field.set(FIELD_MODIFIED)
+        if self.field_codes.get(self.field.get()) is None:
+            self.field.set(field_label("m"))
         self.d_from.set((dt.date.today() - dt.timedelta(days=days)).isoformat())
         self.d_to.set("")
         self.preset.set("")
@@ -767,7 +873,7 @@ class App:
     def clear_dates(self):
         self.d_from.set("")
         self.d_to.set("")
-        self.field.set(FIELD_NONE)
+        self.field.set(field_label(None))
         self.refresh()
 
     def refresh(self):
@@ -775,13 +881,13 @@ class App:
         self.dirty = False
         self.last_refresh = time.monotonic()
 
-        code = FIELD_CODES[self.field.get()]
+        code = self.field_codes.get(self.field.get())
         lo, hi = float("-inf"), float("inf")
         try:
             lo, hi = parse_range(self.d_from.get(), self.d_to.get())
             self.date_msg.configure(text="")
         except ValueError as e:
-            self.date_msg.configure(text="Fecha no válida: %s. Se muestran todas." % e)
+            self.date_msg.configure(text=t("date.reversed") if str(e) == "reversed" else t("date.invalid"))
             code = None
 
         rows, without = [], []
@@ -815,14 +921,14 @@ class App:
             try:
                 open_path(path)
             except OSError as e:
-                messagebox.showerror(APP_NAME, "No se pudo abrir:\n%s\n\n%s" % (path, e))
+                messagebox.showerror(APP_NAME, t("err.open", path=path, error=e))
 
     def copy_paths(self):
         paths = self.selected_paths()
         if paths:
             self.root.clipboard_clear()
             self.root.clipboard_append("\n".join(paths))
-            self.set_status("Copiado: %d ruta(s) al portapapeles" % len(paths))
+            self.set_status(t("status.copied", n=len(paths)))
 
     def popup(self, event):
         iid = self.tree.identify_row(event.y)
@@ -858,7 +964,7 @@ class App:
                 elif kind == "done":
                     running = False
                     self._set_busy(False)
-                    self.set_status("Búsqueda finalizada")
+                    self.set_status(t("status.done"))
                     self.dirty = True
 
                 elif kind == "update_check":
@@ -866,21 +972,21 @@ class App:
                     self.handle_update(manual, res)
 
                 elif kind == "update_applied":
-                    messagebox.showinfo(APP_NAME, "Actualizado. El programa se reiniciará ahora.")
+                    messagebox.showinfo(APP_NAME, t("upd.applied"))
                     update_spawn_restart()
                     self.root.destroy()
                     return
 
                 elif kind == "update_error":
-                    self.set_status("Error al actualizar")
-                    messagebox.showerror(APP_NAME, "No se pudo actualizar:\n\n" + value)
+                    self.set_status(t("status.update_error"))
+                    messagebox.showerror(APP_NAME, t("upd.failed", error=value))
 
         except queue.Empty:
             pass
 
         if self.dirty and time.monotonic() - self.last_refresh > 0.3:
             self.refresh()
-        elif not running and stats_q.unfinished_tasks == 0 and self.count_lbl.cget("text").count("calculando"):
+        elif not running and stats_q.unfinished_tasks == 0 and getattr(self, "_pending_shown", False):
             self._update_counts(len(self.tree.get_children()))
 
         self.root.after(100, self.poll)
@@ -899,36 +1005,35 @@ class App:
                 events.put(("update_applied", None))
             except Exception as e:  # noqa: BLE001
                 events.put(("update_error", str(e) or e.__class__.__name__))
-        self.set_status("Descargando actualización…")
+        self.set_status(t("status.downloading"))
         threading.Thread(target=run, daemon=True).start()
 
     def handle_update(self, manual, res):
         if not res.get("ok"):
             if manual:
-                messagebox.showerror(APP_NAME, "No se pudieron buscar actualizaciones:\n\n" + res.get("error", ""))
+                messagebox.showerror(APP_NAME, t("upd.check_failed", error=res.get("error", "")))
             return
         state = res["state"]
         if state in ("same", "older"):
             if manual and state == "same":
-                messagebox.showinfo(APP_NAME, "Ya tienes la última versión (v%s)." % APP_VERSION)
+                messagebox.showinfo(APP_NAME, t("upd.latest", v=APP_VERSION))
             return
         info = res["info"]
         ver = info.get("version", "?")
         if running:
             if manual:
-                messagebox.showinfo(APP_NAME, "Hay una búsqueda en curso. Espera a que termine o pulsa Detener para actualizar.")
-            self.set_status("Hay una versión nueva (v%s): se puede instalar al terminar la búsqueda" % ver)
+                messagebox.showinfo(APP_NAME, t("upd.busy"))
+            self.set_status(t("status.update_after", v=ver))
             return
         if self.auto_update.get():
             self._apply_async(info)
             return
         notes = (info.get("notes") or "").strip()[:600]
-        question = ("Hay una versión nueva: v%s (tienes v%s).\n\n%s\n\n¿Actualizar ahora?\n"
-                    "Se guardará una copia de la versión actual." % (ver, APP_VERSION, notes))
+        question = t("upd.question", v=ver, cur=APP_VERSION, notes=notes)
         if messagebox.askyesno(APP_NAME, question):
             self._apply_async(info)
         else:
-            self.set_status("Actualización v%s disponible" % ver)
+            self.set_status(t("status.update_available", v=ver))
 
     def save_auto_update(self):
         update_state()["auto"] = bool(self.auto_update.get())
@@ -936,21 +1041,36 @@ class App:
 
     def rollback(self):
         if running:
-            messagebox.showinfo(APP_NAME, "Espera a que termine la búsqueda antes de revertir.")
+            messagebox.showinfo(APP_NAME, t("rb.busy"))
             return
-        if not messagebox.askyesno(APP_NAME, "¿Volver a la versión anterior guardada?"):
+        if not messagebox.askyesno(APP_NAME, t("rb.q")):
             return
         try:
             update_rollback()
         except Exception as e:  # noqa: BLE001
-            messagebox.showerror(APP_NAME, "No se pudo revertir:\n\n%s" % e)
+            messagebox.showerror(APP_NAME, t("rb.failed", error=e))
             return
-        messagebox.showinfo(APP_NAME, "Versión anterior restaurada. El programa se reiniciará.")
+        messagebox.showinfo(APP_NAME, t("rb.done"))
         update_spawn_restart()
+        self.root.destroy()
+
+    def restart_for_language(self):
+        """Boton Idioma: se reabre para verlo en el idioma nuevo (con una busqueda en marcha, no)."""
+        if running:
+            messagebox.showinfo(APP_NAME, t("lang.restart_busy"))
+            return
+        update_spawn_restart(delay=1)
         self.root.destroy()
 
 
 def main():
+    global langkit
+    if bring_lang_files() and langkit is None:   # instalacion antigua: ya tiene langkit.py y lang/
+        try:
+            import langkit as _lk
+            langkit = _lk
+        except ImportError:
+            pass
     root = tk.Tk()
     App(root)
     root.mainloop()
